@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import PostForm from "@/components/PostForm";
 import Post from "@/components/Post";
 import ConfirmModal from "@/components/ConfirmModal";
-import appBackground from "@/assets/app-background.jpg";
+const BG_URL = "https://i.imgur.com/b5Hqb4d.png";
 
 interface PostData {
   id: string;
@@ -18,22 +18,49 @@ interface PostData {
 }
 
 const Index = () => {
-  const [posts, setPosts] = useState<PostData[]>([
-    {
-      id: "1",
-      title: "Welcome to Lau Lau Talk!",
-      content: "This is the beginning of something amazing. A place where thoughts, photos, and videos come together to create meaningful conversations. Join me on this journey of sharing and connecting! ✨",
-      type: "photo",
-      mediaUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=600&fit=crop",
-      reactions: { "👍": 5, "❤️": 12, "😂": 2 },
-      comments: [
-        { id: "c1", text: "Love this concept! Can't wait to see more posts.", author: "User123" },
-        { id: "c2", text: "Finally, a platform that feels personal and engaging.", author: "Creator456" }
-      ],
-      authorId: "current-user",
-      createdAt: new Date(),
-    },
-  ]);
+  const [posts, setPosts] = useState<PostData[]>(() => {
+    const saved = localStorage.getItem('llt_posts');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((p: any) => ({ ...p, createdAt: new Date(p.createdAt) }));
+      } catch {}
+    }
+    return [
+      {
+        id: "1",
+        title: "Welcome to Lau Lau Talk!",
+        content: "This is the beginning of something amazing. A place where thoughts, photos, and videos come together to create meaningful conversations. Join me on this journey of sharing and connecting! ✨",
+        type: "photo",
+        mediaUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=600&fit=crop",
+        reactions: { "👍": 5, "❤️": 12, "😂": 2 },
+        comments: [
+          { id: "c1", text: "Love this concept! Can't wait to see more posts.", author: "User123" },
+          { id: "c2", text: "Finally, a platform that feels personal and engaging.", author: "Creator456" }
+        ],
+        authorId: "current-user",
+        createdAt: new Date(),
+      },
+    ];
+  });
+
+  // Persist posts to localStorage
+  useEffect(() => {
+    try { localStorage.setItem('llt_posts', JSON.stringify(posts)); } catch {}
+  }, [posts]);
+
+  // Simple owner mode (visitors won't see delete). Toggle with ?owner=1 in URL.
+  const [isOwner, setIsOwner] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('owner')) {
+      const val = params.get('owner') === '1';
+      localStorage.setItem('llt_isOwner', val ? 'true' : 'false');
+      setIsOwner(val);
+    } else {
+      setIsOwner(localStorage.getItem('llt_isOwner') === 'true');
+    }
+  }, []);
   
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -47,7 +74,7 @@ const Index = () => {
     onConfirm: () => {},
   });
 
-  const currentUserId = "current-user";
+  const currentUserId = isOwner ? "current-user" : "visitor";
 
   const handlePostCreate = (newPost: {
     title: string;
@@ -115,7 +142,7 @@ const Index = () => {
     <div 
       className="min-h-screen bg-app-background text-text-primary"
       style={{
-        backgroundImage: `url(${appBackground})`,
+        backgroundImage: `url(${BG_URL})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundAttachment: 'fixed',
@@ -148,7 +175,7 @@ const Index = () => {
                   mediaUrl={post.mediaUrl}
                   reactions={post.reactions}
                   comments={post.comments}
-                  canDelete={post.authorId === currentUserId}
+                  canDelete={isOwner && post.authorId === currentUserId}
                   onReaction={handleReaction}
                   onComment={handleComment}
                   onDelete={handleDeletePost}
