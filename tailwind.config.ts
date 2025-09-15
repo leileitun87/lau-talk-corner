@@ -13,7 +13,24 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        inter: ['Inter', 'system-ui', 'sans-serif'],
+      },
       colors: {
+        // App specific colors
+        'app-background': 'hsl(var(--app-background))',
+        'app-surface': 'hsl(var(--app-surface))',
+        'app-overlay': 'hsl(var(--app-overlay))',
+        'brand-primary': 'hsl(var(--brand-primary))',
+        'brand-secondary': 'hsl(var(--brand-secondary))',
+        'brand-accent': 'hsl(var(--brand-accent))',
+        'text-primary': 'hsl(var(--text-primary))',
+        'text-secondary': 'hsl(var(--text-secondary))',
+        'text-muted': 'hsl(var(--text-muted))',
+        'interactive-hover': 'hsl(var(--interactive-hover))',
+        'interactive-active': 'hsl(var(--interactive-active))',
+        
+        // Standard shadcn colors
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -47,16 +64,6 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
-        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -84,6 +91,9 @@ export default {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+      },
+      backgroundImage: {
+        'lau-bg': "url('https://i.imgur.com/b5Hqb4d.png')",
       },
     },
   },
