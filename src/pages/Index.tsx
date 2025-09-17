@@ -12,12 +12,29 @@ interface PostData {
   title: string;
   content: string;
   media_url: string;
+  post_type: string;
   user_id?: string;
+  created_at: string;
+}
+
+interface ReactionData {
+  post_id: string;
+  emoji: string;
+  count: number;
+}
+
+interface CommentData {
+  id: string;
+  post_id: string;
+  text: string;
+  author: string;
   created_at: string;
 }
 
 const Index = () => {
   const [posts, setPosts] = useState<PostData[]>([]);
+  const [reactions, setReactions] = useState<{ [postId: string]: { [emoji: string]: number } }>({});
+  const [comments, setComments] = useState<{ [postId: string]: CommentData[] }>({});
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -41,34 +58,128 @@ const Index = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load posts from Supabase
+  // Load posts and set up real-time subscriptions
   useEffect(() => {
-    loadPosts();
+    loadData();
+    setupRealtimeSubscriptions();
   }, []);
 
-  const loadPosts = async () => {
+  const loadData = async () => {
     try {
-      const { data, error } = await supabase
+      // Load posts
+      const { data: postsData, error: postsError } = await supabase
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error loading posts:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load posts. Please try again.",
-          variant: "destructive",
-        });
-        return;
-      }
+      if (postsError) throw postsError;
+      
+      // Ensure all posts have post_type field (default to 'photo' for existing posts)
+      const postsWithType = (postsData || []).map((post: any) => ({
+        ...post,
+        post_type: post.post_type || 'photo'
+      }));
+      setPosts(postsWithType);
 
-      setPosts(data || []);
+      // Load reactions
+      const { data: reactionsData, error: reactionsError } = await supabase
+        .from('reactions')
+        .select('post_id, emoji, user_id');
+
+      if (reactionsError) throw reactionsError;
+
+      // Group reactions by post and emoji
+      const reactionsMap: { [postId: string]: { [emoji: string]: number } } = {};
+      reactionsData?.forEach(reaction => {
+        if (!reactionsMap[reaction.post_id]) reactionsMap[reaction.post_id] = {};
+        if (!reactionsMap[reaction.post_id][reaction.emoji]) reactionsMap[reaction.post_id][reaction.emoji] = 0;
+        reactionsMap[reaction.post_id][reaction.emoji]++;
+      });
+      setReactions(reactionsMap);
+
+      // Load comments
+      const { data: commentsData, error: commentsError } = await supabase
+        .from('comments')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (commentsError) throw commentsError;
+
+      // Group comments by post
+      const commentsMap: { [postId: string]: CommentData[] } = {};
+      commentsData?.forEach(comment => {
+        if (!commentsMap[comment.post_id]) commentsMap[comment.post_id] = [];
+        commentsMap[comment.post_id].push(comment);
+      });
+      setComments(commentsMap);
+
     } catch (error) {
-      console.error('Error loading posts:', error);
+      console.error('Error loading data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load content. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
+  };
+
+  const setupRealtimeSubscriptions = () => {
+    // Posts subscription
+    const postsChannel = supabase
+      .channel('posts-channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, 
+        (payload) => {
+          setPosts(prev => [payload.new as PostData, ...prev]);
+        })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, 
+        (payload) => {
+          setPosts(prev => prev.filter(post => post.id !== payload.old.id));
+        })
+      .subscribe();
+
+    // Reactions subscription
+    const reactionsChannel = supabase
+      .channel('reactions-channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions' }, 
+        () => {
+          loadReactions(); // Reload reactions on any change
+        })
+      .subscribe();
+
+    // Comments subscription
+    const commentsChannel = supabase
+      .channel('comments-channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, 
+        (payload) => {
+          const newComment = payload.new as CommentData;
+          setComments(prev => ({
+            ...prev,
+            [newComment.post_id]: [...(prev[newComment.post_id] || []), newComment]
+          }));
+        })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(postsChannel);
+      supabase.removeChannel(reactionsChannel);
+      supabase.removeChannel(commentsChannel);
+    };
+  };
+
+  const loadReactions = async () => {
+    const { data: reactionsData } = await supabase
+      .from('reactions')
+      .select('post_id, emoji, user_id');
+
+    const reactionsMap: { [postId: string]: { [emoji: string]: number } } = {};
+    reactionsData?.forEach(reaction => {
+      if (!reactionsMap[reaction.post_id]) reactionsMap[reaction.post_id] = {};
+      if (!reactionsMap[reaction.post_id][reaction.emoji]) reactionsMap[reaction.post_id][reaction.emoji] = 0;
+      reactionsMap[reaction.post_id][reaction.emoji]++;
+    });
+    setReactions(reactionsMap);
   };
   
   const [confirmModal, setConfirmModal] = useState<{
@@ -87,6 +198,7 @@ const Index = () => {
     title: string;
     content: string;
     mediaUrl: string;
+    type: string;
   }) => {
     if (!user) {
       toast({
@@ -105,6 +217,7 @@ const Index = () => {
             title: newPost.title,
             content: newPost.content,
             media_url: newPost.mediaUrl,
+            post_type: newPost.type,
             user_id: user.id,
           }
         ])
@@ -121,7 +234,7 @@ const Index = () => {
       }
 
       if (data) {
-        setPosts([data[0], ...posts]);
+        // Don't manually update posts here - real-time subscription will handle it
         toast({
           title: "Success",
           description: "Post created successfully!",
@@ -159,7 +272,7 @@ const Index = () => {
             return;
           }
 
-          setPosts(posts.filter(post => post.id !== postId));
+          // Don't manually update posts here - real-time subscription will handle it
           toast({
             title: "Success",
             description: "Post deleted successfully.",
@@ -175,6 +288,76 @@ const Index = () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
       },
     });
+  };
+
+  const handleReaction = async (postId: string, emoji: string) => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please wait while we set up your session.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Check if reaction already exists
+      const { data: existing } = await supabase
+        .from('reactions')
+        .select('id')
+        .eq('post_id', postId)
+        .eq('user_id', user.id)
+        .eq('emoji', emoji)
+        .single();
+
+      if (existing) {
+        // Remove reaction
+        await supabase
+          .from('reactions')
+          .delete()
+          .eq('id', existing.id);
+      } else {
+        // Add reaction
+        await supabase
+          .from('reactions')
+          .insert({
+            post_id: postId,
+            user_id: user.id,
+            emoji: emoji,
+          });
+      }
+    } catch (error) {
+      console.error('Error handling reaction:', error);
+    }
+  };
+
+  const handleComment = async (postId: string, commentText: string) => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please wait while we set up your session.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await supabase
+        .from('comments')
+        .insert({
+          post_id: postId,
+          user_id: user.id,
+          text: commentText,
+          author: user.email ? user.email.split('@')[0] : 'Anonymous',
+        });
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add comment. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -211,41 +394,20 @@ const Index = () => {
               </div>
             ) : (
               posts.map((post) => (
-                <div key={post.id} className="w-full max-w-2xl mx-auto glass-card rounded-xl">
-                  <div className="p-6">
-                    {post.media_url && (
-                      <div className="mb-4">
-                        <img 
-                          src={post.media_url} 
-                          alt={post.title} 
-                          className="w-full h-auto rounded-lg object-cover"
-                          onError={(e) => {
-                            e.currentTarget.src = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=600&fit=crop';
-                          }}
-                        />
-                      </div>
-                    )}
-                    <h2 className="text-xl font-bold text-brand-primary mb-2">
-                      {post.title}
-                    </h2>
-                    <p className="text-text-secondary leading-relaxed mb-4">
-                      {post.content}
-                    </p>
-                    <div className="flex items-center justify-between text-sm text-text-muted">
-                      <span>
-                        {new Date(post.created_at).toLocaleDateString()}
-                      </span>
-                      {user && post.user_id === user.id && (
-                        <button
-                          onClick={() => handleDeletePost(post.id)}
-                          className="text-red-400 hover:text-red-300 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <Post
+                  key={post.id}
+                  id={post.id}
+                  title={post.title}
+                  content={post.content}
+                  type={post.post_type || 'photo'}
+                  mediaUrl={post.media_url}
+                  reactions={reactions[post.id] || {}}
+                  comments={comments[post.id] || []}
+                  canDelete={user && post.user_id === user.id}
+                  onReaction={handleReaction}
+                  onComment={handleComment}
+                  onDelete={handleDeletePost}
+                />
               ))
             )}
           </div>

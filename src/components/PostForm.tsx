@@ -13,6 +13,7 @@ interface PostFormProps {
     title: string;
     content: string;
     mediaUrl: string;
+    type: string;
   }) => void;
 }
 
@@ -22,6 +23,11 @@ const PostForm = ({ onPostCreate }: PostFormProps) => {
   const [mediaUrl, setMediaUrl] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
+
+  const detectPostType = (url: string) => {
+    const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+    return youtubeRegex.test(url) ? "video" : "photo";
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +41,8 @@ const PostForm = ({ onPostCreate }: PostFormProps) => {
       return;
     }
 
-    onPostCreate({ title, content, mediaUrl });
+    const postType = detectPostType(mediaUrl.trim());
+    onPostCreate({ title, content, mediaUrl, type: postType });
     
     // Reset form
     setTitle("");
