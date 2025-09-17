@@ -21,6 +21,7 @@ export type Database = {
           id: string
           media_url: string | null
           title: string
+          user_id: string
         }
         Insert: {
           content?: string
@@ -28,6 +29,7 @@ export type Database = {
           id?: string
           media_url?: string | null
           title?: string
+          user_id?: string
         }
         Update: {
           content?: string
@@ -35,6 +37,7 @@ export type Database = {
           id?: string
           media_url?: string | null
           title?: string
+          user_id?: string
         }
         Relationships: []
       }
