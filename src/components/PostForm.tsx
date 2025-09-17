@@ -12,7 +12,6 @@ interface PostFormProps {
   onPostCreate: (post: {
     title: string;
     content: string;
-    type: string;
     mediaUrl: string;
   }) => void;
 }
@@ -20,7 +19,6 @@ interface PostFormProps {
 const PostForm = ({ onPostCreate }: PostFormProps) => {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [type, setType] = useState("photo");
   const [mediaUrl, setMediaUrl] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
@@ -37,7 +35,7 @@ const PostForm = ({ onPostCreate }: PostFormProps) => {
       return;
     }
 
-    onPostCreate({ title, content, type, mediaUrl });
+    onPostCreate({ title, content, mediaUrl });
     
     // Reset form
     setTitle("");
@@ -125,20 +123,6 @@ const PostForm = ({ onPostCreate }: PostFormProps) => {
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="type" className="text-text-secondary font-medium">
-              Content Type
-            </Label>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger className="bg-app-overlay border-border text-text-primary">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="photo">Photo</SelectItem>
-                <SelectItem value="video">YouTube Video</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
 
           <div className="space-y-2">
             <Label htmlFor="mediaUrl" className="text-text-secondary font-medium">

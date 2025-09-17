@@ -3,64 +3,73 @@ import Header from "@/components/Header";
 import PostForm from "@/components/PostForm";
 import Post from "@/components/Post";
 import ConfirmModal from "@/components/ConfirmModal";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 const BG_URL = "https://i.imgur.com/b5Hqb4d.png";
 
 interface PostData {
   id: string;
   title: string;
   content: string;
-  type: string;
-  mediaUrl: string;
-  reactions: { [emoji: string]: number };
-  comments: Array<{ id: string; text: string; author: string }>;
-  authorId: string;
-  createdAt: Date;
+  media_url: string;
+  user_id?: string;
+  created_at: string;
 }
 
 const Index = () => {
-  const [posts, setPosts] = useState<PostData[]>(() => {
-    const saved = localStorage.getItem('llt_posts');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.map((p: any) => ({ ...p, createdAt: new Date(p.createdAt) }));
-      } catch {}
-    }
-    return [
-      {
-        id: "1",
-        title: "Welcome to Lau Lau Talk!",
-        content: "This is the beginning of something amazing. A place where thoughts, photos, and videos come together to create meaningful conversations. Join me on this journey of sharing and connecting! ✨",
-        type: "photo",
-        mediaUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=600&fit=crop",
-        reactions: { "👍": 5, "❤️": 12, "😂": 2 },
-        comments: [
-          { id: "c1", text: "Love this concept! Can't wait to see more posts.", author: "User123" },
-          { id: "c2", text: "Finally, a platform that feels personal and engaging.", author: "Creator456" }
-        ],
-        authorId: "current-user",
-        createdAt: new Date(),
-      },
-    ];
-  });
+  const [posts, setPosts] = useState<PostData[]>([]);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
-  // Persist posts to localStorage
+  // Authentication and data loading
   useEffect(() => {
-    try { localStorage.setItem('llt_posts', JSON.stringify(posts)); } catch {}
-  }, [posts]);
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (!session?.user) {
+        // Sign in anonymously if no user
+        supabase.auth.signInAnonymously();
+      }
+    });
 
-  // Simple owner mode (visitors won't see delete). Toggle with ?owner=1 in URL.
-  const [isOwner, setIsOwner] = useState(false);
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('owner')) {
-      const val = params.get('owner') === '1';
-      localStorage.setItem('llt_isOwner', val ? 'true' : 'false');
-      setIsOwner(val);
-    } else {
-      setIsOwner(localStorage.getItem('llt_isOwner') === 'true');
-    }
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  // Load posts from Supabase
+  useEffect(() => {
+    loadPosts();
+  }, []);
+
+  const loadPosts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading posts:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load posts. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setPosts(data || []);
+    } catch (error) {
+      console.error('Error loading posts:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -74,65 +83,95 @@ const Index = () => {
     onConfirm: () => {},
   });
 
-  const currentUserId = isOwner ? "current-user" : "visitor";
-
-  const handlePostCreate = (newPost: {
+  const handlePostCreate = async (newPost: {
     title: string;
     content: string;
-    type: string;
     mediaUrl: string;
   }) => {
-    const post: PostData = {
-      id: Date.now().toString(),
-      ...newPost,
-      reactions: {},
-      comments: [],
-      authorId: currentUserId,
-      createdAt: new Date(),
-    };
-    
-    setPosts([post, ...posts]);
-  };
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please wait while we set up your session.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const handleReaction = (postId: string, emoji: string) => {
-    setPosts(posts.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          reactions: {
-            ...post.reactions,
-            [emoji]: (post.reactions[emoji] || 0) + 1,
-          },
-        };
+    try {
+      const { data, error } = await supabase
+        .from('posts')
+        .insert([
+          {
+            title: newPost.title,
+            content: newPost.content,
+            media_url: newPost.mediaUrl,
+            user_id: user.id,
+          }
+        ])
+        .select();
+
+      if (error) {
+        console.error('Error creating post:', error);
+        toast({
+          title: "Error",
+          description: "Failed to create post. Please try again.",
+          variant: "destructive",
+        });
+        return;
       }
-      return post;
-    }));
-  };
 
-  const handleComment = (postId: string, commentText: string) => {
-    setPosts(posts.map(post => {
-      if (post.id === postId) {
-        const newComment = {
-          id: Date.now().toString(),
-          text: commentText,
-          author: `User${Math.floor(Math.random() * 1000)}`,
-        };
-        return {
-          ...post,
-          comments: [...post.comments, newComment],
-        };
+      if (data) {
+        setPosts([data[0], ...posts]);
+        toast({
+          title: "Success",
+          description: "Post created successfully!",
+        });
       }
-      return post;
-    }));
+    } catch (error) {
+      console.error('Error creating post:', error);
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleDeletePost = (postId: string) => {
+  const handleDeletePost = async (postId: string) => {
     setConfirmModal({
       isOpen: true,
       title: "Delete Post",
       message: "Are you sure you want to delete this post? This action cannot be undone.",
-      onConfirm: () => {
-        setPosts(posts.filter(post => post.id !== postId));
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('posts')
+            .delete()
+            .eq('id', postId);
+
+          if (error) {
+            console.error('Error deleting post:', error);
+            toast({
+              title: "Error",
+              description: "Failed to delete post. Please try again.",
+              variant: "destructive",
+            });
+            return;
+          }
+
+          setPosts(posts.filter(post => post.id !== postId));
+          toast({
+            title: "Success",
+            description: "Post deleted successfully.",
+          });
+        } catch (error) {
+          console.error('Error deleting post:', error);
+          toast({
+            title: "Error",
+            description: "An unexpected error occurred.",
+            variant: "destructive",
+          });
+        }
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
       },
     });
@@ -155,7 +194,13 @@ const Index = () => {
           <PostForm onPostCreate={handlePostCreate} />
           
           <div className="space-y-6">
-            {posts.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-12">
+                <h2 className="text-2xl font-semibold text-text-secondary mb-2">
+                  Loading posts...
+                </h2>
+              </div>
+            ) : posts.length === 0 ? (
               <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-text-secondary mb-2">
                   No posts yet
@@ -166,20 +211,41 @@ const Index = () => {
               </div>
             ) : (
               posts.map((post) => (
-                <Post
-                  key={post.id}
-                  id={post.id}
-                  title={post.title}
-                  content={post.content}
-                  type={post.type}
-                  mediaUrl={post.mediaUrl}
-                  reactions={post.reactions}
-                  comments={post.comments}
-                  canDelete={isOwner && post.authorId === currentUserId}
-                  onReaction={handleReaction}
-                  onComment={handleComment}
-                  onDelete={handleDeletePost}
-                />
+                <div key={post.id} className="w-full max-w-2xl mx-auto glass-card rounded-xl">
+                  <div className="p-6">
+                    {post.media_url && (
+                      <div className="mb-4">
+                        <img 
+                          src={post.media_url} 
+                          alt={post.title} 
+                          className="w-full h-auto rounded-lg object-cover"
+                          onError={(e) => {
+                            e.currentTarget.src = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&h=600&fit=crop';
+                          }}
+                        />
+                      </div>
+                    )}
+                    <h2 className="text-xl font-bold text-brand-primary mb-2">
+                      {post.title}
+                    </h2>
+                    <p className="text-text-secondary leading-relaxed mb-4">
+                      {post.content}
+                    </p>
+                    <div className="flex items-center justify-between text-sm text-text-muted">
+                      <span>
+                        {new Date(post.created_at).toLocaleDateString()}
+                      </span>
+                      {user && post.user_id === user.id && (
+                        <button
+                          onClick={() => handleDeletePost(post.id)}
+                          className="text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               ))
             )}
           </div>
